@@ -6,8 +6,8 @@ set -o pipefail
 init_integration_tests() {
   local test_dir=$1
 
-  if [[ ! -f "$test_dir/ssh/test_key" || ! -f "$test_dir/ssh/test_repo" ]]; then
-    echo "$test_dir/ssh/test_key and $test_dir/ssh/test_repo must BOTH exist. Skipping integration tests." 1>&2
+  if [[ ! -f "$test_dir/ssh/test_key" || ! -f "$test_dir/ssh/test_dokku_addr" ]]; then
+    echo "$test_dir/ssh/test_key and $test_dir/ssh/test_dokku_addr must BOTH exist. Skipping integration tests." 1>&2
     exit 0
   fi
 
@@ -15,55 +15,58 @@ init_integration_tests() {
   squid
   sleep 2
 
-  export INTG_REPO=$(cat $test_dir/ssh/test_repo | cut -d '#' -f1)
-
-  branch=$(cat $test_dir/ssh/test_repo | cut -d '#' -f2)
-  [[ "$INTG_REPO" == "$branch" ]] && branch=master
-
-  export INTG_BRANCH=$branch
+  export INTG_DOKKU_ADDR=$(cat $test_dir/ssh/test_dokku_addr)
 }
 
-check_uri_with_private_key_and_incomplete_tunnel_info() {
+put_app() {
+  local -r pkey=$1
+  local -r source=$2
+  local -r repository=$3
+  local -r auth=${4:-""}
   jq -n "{
     source: {
-      uri: $(echo $INTG_REPO | jq -R .),
-      private_key: $(cat $1 | jq -s -R .),
-      branch: $(echo $INTG_BRANCH | jq -R .),
-      https_tunnel: {}
+      server: $(echo $INTG_DOKKU_ADDR | jq -R .),
+      private_key: $(cat $1| jq -s -R .),
+      branch: \"master\"
+    },
+    params: {
+      app: \"concourse-resource-integration-test\",
+      repository: $(echo $3 | jq -R .),
+      builder: \"herokuish\",
+      environment_variables: {
+        \"a\": \"test_a\",
+        \"b\": \"test_b\"
+      }
     }
-  }" | ${resource_dir}/check "$2" | tee /dev/stderr
+  }" | ${resource_dir}/out "$2" | tee /dev/stderr
 }
 
-check_uri_with_private_key_and_tunnel_info() {
-  auth=${3:-""}
+put_app_with_private_key_and_tunnel_info() {
+  local -r pkey=$1
+  local -r source=$2
+  local -r repository=$3
+  local -r auth=${4:-""}
   jq -n "{
     source: {
-      uri: $(echo $INTG_REPO | jq -R .),
-      private_key: $(cat $1 | jq -s -R .),
-      branch: $(echo $INTG_BRANCH | jq -R .),
+      server: $(echo $INTG_DOKKU_ADDR | jq -R .),
+      private_key: $(cat $1| jq -s -R .),
+      branch: \"master\",
       https_tunnel: {
         proxy_host: \"localhost\",
         proxy_port: 3128
         $(add_proxy_auth "$auth")
       }
-    }
-  }" | ${resource_dir}/check "$2" | tee /dev/stderr
-}
-
-get_uri_with_private_key_and_tunnel_info() {
-  auth=${3:-""}
-  jq -n "{
-    source: {
-      uri: $(echo $INTG_REPO | jq -R .),
-      private_key: $(cat $1 | jq -s -R .),
-      branch: $(echo $INTG_BRANCH | jq -R .),
-      https_tunnel: {
-        proxy_host: \"localhost\",
-        proxy_port: 3128
-        $(add_proxy_auth "$auth")
+    },
+    params: {
+      app: \"concourse-resource-integration-test\",
+      repository: $(echo $3 | jq -R .),
+      builder: \"herokuish\",
+      environment_variables: {
+        \"a\": \"test_a\",
+        \"b\": \"test_b\"
       }
     }
-  }" | ${resource_dir}/in "$2" | tee /dev/stderr
+  }" | ${resource_dir}/out "$2" | tee /dev/stderr
 }
 
 put_uri_with_private_key_and_tunnel_info() {
@@ -139,7 +142,7 @@ __run() {
   set +e
   attempts=10
   while (( attempts )); do
-    ( netstat -an | grep LISTEN | grep 3128 ) >/dev/null 2>&1
+    ( netstat -an | grep LISTEN | grep 3128 )
     rc=$?
 
     if [[ $rc == 0 ]]; then

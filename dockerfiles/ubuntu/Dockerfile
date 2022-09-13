@@ -14,15 +14,13 @@ RUN apt install -y --no-install-recommends \
     g++ \
     openssh-client \
     libstdc++6 \
-    software-properties-common
+    software-properties-common \
+    net-tools
 
 RUN apt-add-repository ppa:git-core/ppa \
   && apt update \
   && apt install -y git \
   && rm -rf /var/lib/apt/lists/*
-
-RUN curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
-RUN apt install -y git-lfs
 
 WORKDIR /root
 RUN git clone https://github.com/proxytunnel/proxytunnel.git && \
@@ -38,9 +36,6 @@ RUN git config --global pull.rebase "false"
 
 ADD assets/ /opt/resource/
 RUN chmod +x /opt/resource/*
-
-ADD scripts/install_git_crypt.sh install_git_crypt.sh
-RUN ./install_git_crypt.sh && rm ./install_git_crypt.sh
 
 WORKDIR         /usr/libexec/git-core
 RUN             rm -f \
@@ -102,7 +97,6 @@ RUN             rm -f \
                     git-index-pack \
                     git-init \
                     git-init-db \
-                    git-lfs \
                     git-log \
                     git-ls-files \
                     git-ls-remote \
@@ -176,8 +170,7 @@ RUN             rm -f \
                     git-upload-pack \
                     git-upload-archive &&\
                 ln -s git git-upload-archive &&\
-                ln -s git git-merge &&\
-                ln -s git git-crypt
+                ln -s git git-merge
 
 WORKDIR         /usr/share
 RUN             rm -rf \

@@ -22,34 +22,53 @@ payload="$(cat <&0)"
 
 load_pubkey "$payload"
 configure_https_tunnel "$payload"
-configure_git_ssl_verification "$payload"
-configure_credentials "$payload"
+configure_submodule_credentials "$payload"
 
-uri=$(jq -r '.source.uri // ""' <<< "$payload")
+server=$(jq -r '.source.server // ""' <<< "$payload")
 branch=$(jq -r '.source.branch // ""' <<< "$payload")
 git_config_payload=$(jq -r '.source.git_config // []' <<< "$payload")
 repository=$(jq -r '.params.repository // ""' <<< "$payload")
-tag=$(jq -r '.params.tag // ""' <<< "$payload")
-tag_prefix=$(jq -r '.params.tag_prefix // ""' <<< "$payload")
-rebase=$(jq -r '.params.rebase // false' <<< "$payload")
-merge=$(jq -r '.params.merge // false' <<< "$payload")
-returning=$(jq -r '.params.returning // "merged"' <<< "$payload")
-force=$(jq -r '.params.force // false' <<< "$payload")
-only_tag=$(jq -r '.params.only_tag // false' <<< "$payload")
-annotation_file=$(jq -r '.params.annotate // ""' <<< "$payload")
-notes_file=$(jq -r '.params.notes // ""' <<< "$payload")
+app=$(jq -r '.params.app // ""' <<< "$payload")
 override_branch=$(jq -r '.params.branch // ""' <<< "$payload")
-# useful for pushing to special ref types like refs/for in gerrit.
-refs_prefix=$(jq -r '.params.refs_prefix // "refs/heads"' <<< "$payload")
+override_builder=$(jq -r '.params.builder // ""' <<< "$payload")
+environment=$(jq '.params.environment_variables // {}' <<< "$payload")
+
+builder=$override_builder
 
 configure_git_global "${git_config_payload}"
 
-if [ -z "$uri" ]; then
-  echo "invalid payload (missing uri)"
+if [ -z "$server" ]; then
+  echo "invalid payload (missing server)"
   exit 1
 fi
 
-if [ -z "$branch" ] && [ "$only_tag" != "true" ] && [ -z "$override_branch" ]; then
+if [ -z "$app" ]; then
+  echo "invalid payload (missing app)"
+  exit 1
+fi
+
+uri="ssh://dokku@$server/$app"
+server_host=$(echo "$server:" | cut -d ':' -f1)
+server_port=$(echo "$server:" | cut -d ':' -f2)
+server_port=${server_port:-22}
+
+mockcommand() {
+  echo "$@" >> $TMPDIR/extcommand.log
+}
+
+if [ "$TEST_MOCK_EXT" = "1" ]
+then
+  EXTCMD="mockcommand"
+else
+  EXTCMD=""
+fi
+
+dokku_cmd() {
+  local -r port=${server_port-22}
+  $EXTCMD ssh "dokku@$server_host" -p "$port" "$@"
+}
+
+if [ -z "$branch" ] && [ -z "$override_branch" ]; then
   echo "invalid payload (missing branch)"
   exit 1
 fi
@@ -59,155 +78,45 @@ if [ -z "$repository" ]; then
   exit 1
 fi
 
-if [ "$merge" = "true" ] && [ "$rebase" = "true" ]; then
-  echo "invalid push strategy (either merge or rebase can be set, but not both)"
-  exit 1
-fi
-
-cd $source
-
-if [ -n "$tag" ] && [ ! -f "$tag" ]; then
-  echo "tag file '$tag' does not exist"
-  exit 1
-fi
-
-if [ -n "$annotation_file" ] && [ ! -f $annotation_file ]; then
-  echo "annotation file '$annotation_file' does not exist"
-  exit 1
-fi
-
-forceflag=""
-if [ $force = "true" ]; then
-  forceflag="--force"
-fi
-
 if [ -n "$override_branch" ]; then
   echo "Override $branch with $override_branch"
   branch=$override_branch
 fi
 
-tag_name=""
-if [ -n "$tag" ]; then
-  tag_name="$(cat $tag)"
+cd "$source"
+cd "$repository" # these are separate commands is because the tests use an absolute path for repository
+
+if ! dokku_cmd apps:exists "$app"
+then
+  echo "App $app does not exist, creating it"
+  dokku_cmd apps:create "$app"
 fi
 
-annotate=""
-if [ -n "$annotation_file" ]; then
-  annotate=" -a -F $source/$annotation_file"
+if [ -n "$builder" ]; then
+  echo "Using builder $builder"
+  dokku_cmd builder:set "$app" selected "$builder"
 fi
 
-cd $repository
+echo "Setting app configuration.  Hiding output to protect any secrets."
+dokku_cmd config:clear --no-restart "$app"
+dokku_cmd config:set --encoded --no-restart "$app" $(jq -r 'to_entries[] | [.key + "=" + (.value | @base64)] | @sh' <<< "$environment") > /dev/null
 
-tag() {
-  if [ -n "$tag_name" ]; then
-    git tag -f "${tag_prefix}${tag_name}" $annotate
-  fi
-}
+deployed_commit=$($EXTCMD git ls-remote "$uri" refs/heads/$branch | awk '{print $1}')
+local_head=$(git rev-parse HEAD)
 
-push_src_and_tags() {
-  git push --tags push-target HEAD:$refs_prefix/$branch $forceflag
-}
+echo "Currently deployed commit is $deployed_commit"
+echo "Local HEAD is $local_head"
 
-push_tags() {
-  git push --tags push-target $forceflag
-}
-
-add_and_push_notes() {
-  if [ -n "$notes_file" ]; then
-    git notes add -F "../${notes_file}"
-    git push push-target refs/notes/*
-  fi
-}
-
-push_with_result_check() {
-  # oh god this is really the only way to do this
-  result_file=$(mktemp $TMPDIR/git-result.XXXXXX)
-
-  echo 0 > $result_file
-
-  {
-    tag 2>&1 && push_src_and_tags 2>&1 && add_and_push_notes 2>&1 || {
-      echo $? > $result_file
-    }
-  } | tee $TMPDIR/push-failure
-
-  # despite what you may think, the embedded cat does not include the
-  # trailing linebreak
-  #
-  # $() appears to trim it
-  #
-  # someone rewrite this please
-  #
-  # pull requests welcome
-  if [ "$(cat $result_file)" = "0" ]; then
-    echo "pushed"
-    eval "$1=0"
-    return
-  fi
-
-  # failed for reason other than non-fast-forward / fetch-first
-  if ! grep -q '\[rejected\]\|\[remote rejected\].*cannot lock ref' $TMPDIR/push-failure; then
-    echo "failed with non-rebase error"
-    eval "$1=1"
-    return
-  fi
-
-  eval "$1=2"
-}
-
-git remote add push-target $uri
-commit_to_push=$(git rev-parse HEAD)
-
-if [ "$only_tag" = "true" ]; then
-  tag
-  push_tags
-elif [ "$merge" = "true" ]; then
-  while true; do
-    echo "merging..."
-
-    git reset --hard $commit_to_push
-
-    git fetch push-target "refs/notes/*:refs/notes/*"
-    git pull --no-edit push-target $branch
-
-    result="0"
-    push_with_result_check result
-    if [ "$result" = "0" ]; then
-      break
-    elif [ "$result" = "1" ]; then
-      exit 1
-    fi
-
-    echo "merging and trying again..."
-  done
-elif [ "$rebase" = "true" ]; then
-  while true; do
-    echo "rebasing..."
-
-    git fetch push-target "refs/notes/*:refs/notes/*"
-    git pull --rebase=merges push-target $branch
-
-    result="0"
-    push_with_result_check result
-    if [ "$result" = "0" ]; then
-      break
-    elif [ "$result" = "1" ]; then
-      exit 1
-    fi
-
-    echo "rebasing and trying again..."
-  done
+# if the ref is the same, dokku won't rebuild.
+if [ "$deployed_commit" != "$local_head" ]; then
+  echo "Pushing $branch to refs/heads/master on $uri"
+  $EXTCMD git push --force "$uri" HEAD:refs/heads/$branch
 else
-  tag
-  push_src_and_tags
-  add_and_push_notes
+  echo "Dokku remote is up to date.  Forcing a rebuild of app instead of pushing."
+  dokku_cmd ps:rebuild "$app"
 fi
 
-if [ "$merge" = "true" ] && [ "$returning" = "unmerged" ]; then
-  version_ref="$(echo "$commit_to_push" | jq -R .)"
-else
-  version_ref="$(git rev-parse HEAD | jq -R .)"
-fi
+version_ref="$(git rev-parse HEAD | jq -R .)"
 
 if [ -n "$override_branch" ]; then
   jq -n "{

@@ -1,5 +1,4 @@
 export TMPDIR=${TMPDIR:-/tmp}
-export GIT_CRYPT_KEY_PATH=~/git-crypt.key
 
 load_pubkey() {
   local private_key_path=$TMPDIR/git-resource-private-key
@@ -64,13 +63,6 @@ configure_git_global() {
   local git_config_payload="$1"
   eval $(echo "$git_config_payload" | \
     jq -r ".[] | \"git config --global '\\(.name)' '\\(.value)'; \"")
-}
-
-configure_git_ssl_verification() {
-  skip_ssl_verification=$(jq -r '.source.skip_ssl_verification // false' <<< "$1")
-  if [ "$skip_ssl_verification" = "true" ]; then
-    export GIT_SSL_NO_VERIFY=true
-  fi
 }
 
 add_git_metadata_basic() {
@@ -187,6 +179,7 @@ git_metadata() {
 configure_submodule_credentials() {
   local username
   local password
+  rm -f $HOME/.netrc
   if [[ "$(jq -r '.source.submodule_credentials // ""' <<< "$1")" == "" ]]; then
     return
   fi
@@ -199,26 +192,4 @@ configure_submodule_credentials() {
       echo "machine $host login $username password $password" >> "${HOME}/.netrc"
     fi
   done
-}
-
-configure_credentials() {
-  local username=$(jq -r '.source.username // ""' <<< "$1")
-  local password=$(jq -r '.source.password // ""' <<< "$1")
-
-  rm -f $HOME/.netrc
-  configure_submodule_credentials "$1"
-
-  if [ "$username" != "" -a "$password" != "" ]; then
-    echo "default login $username password $password" >> "${HOME}/.netrc"
-  fi
-}
-
-load_git_crypt_key() {
-  local git_crypt_tmp_key_path=$TMPDIR/git-resource-git-crypt-key
-
-  (jq -r '.source.git_crypt_key // empty' <<< "$1") > $git_crypt_tmp_key_path
-
-  if [ -s $git_crypt_tmp_key_path ]; then
-      cat $git_crypt_tmp_key_path | tr ' ' '\n' | base64 -d > $GIT_CRYPT_KEY_PATH
-  fi
 }

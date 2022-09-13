@@ -8,7 +8,6 @@ RUN apk --no-cache add \
   curl \
   git \
   git-daemon \
-  git-lfs \
   gnupg \
   gzip \
   jq \
@@ -32,12 +31,6 @@ RUN git clone https://github.com/proxytunnel/proxytunnel.git && \
 RUN git config --global user.email "git@localhost"
 RUN git config --global user.name "git"
 RUN git config --global pull.rebase "false"
-
-ADD assets/ /opt/resource/
-RUN chmod +x /opt/resource/*
-
-ADD scripts/install_git_crypt.sh install_git_crypt.sh
-RUN ./install_git_crypt.sh && rm ./install_git_crypt.sh
 
 WORKDIR         /usr/libexec/git-core
 RUN             rm -f \
@@ -99,7 +92,6 @@ RUN             rm -f \
                     git-index-pack \
                     git-init \
                     git-init-db \
-                    git-lfs \
                     git-log \
                     git-ls-files \
                     git-ls-remote \
@@ -193,6 +185,9 @@ WORKDIR         /usr/lib
 RUN             rm -rf \
                     perl \
                     perl5
+
+ADD assets/ /opt/resource/
+RUN chmod +x /opt/resource/*
 
 FROM resource AS tests
 ADD test/ /tests
