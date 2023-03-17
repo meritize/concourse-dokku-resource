@@ -133,13 +133,12 @@ and the `rebase` parameter is not provided, the push will fail.
 #### Parameters
 
 * `repository`: *Required.* The path of the repository to deploy to Dokku.
-
 * `app`: *Required.* The name of the app to deploy.
-
+* `tls`: TLS certificate info.  It's recommended to provide these using secret variables.  Both must be provided.
+  * `cert`: The TLS certificate
+  * `key`: The TLS private key
 * `branch`: *Optional.* The branch to push.
-
 * `builder`: *Optional.* The dokku builder to use, such as "dockerfile" or "herokuish".
-
 * `environment_variables`: *Optional.* An object whose key-value pairs will be set as environment variables for the app.
 
 ## Development
@@ -159,8 +158,15 @@ will stop the build.
 Run the tests with the following commands for both `alpine` and `ubuntu` images:
 
 ```sh
-docker build -t git-resource --target tests -f dockerfiles/alpine/Dockerfile .
-docker build -t git-resource --target tests -f dockerfiles/ubuntu/Dockerfile .
+docker build -t dokku-resource --target tests -f dockerfiles/alpine/Dockerfile .
+docker build -t dokku-resource --target tests -f dockerfiles/ubuntu/Dockerfile .
+```
+
+And the integration tests:
+
+```sh
+docker build -t dokku-resource --target integrationtests -f dockerfiles/alpine/Dockerfile .
+docker build -t dokku-resource --target integrationtests -f dockerfiles/ubuntu/Dockerfile .
 ```
 
 #### Note about the integration tests

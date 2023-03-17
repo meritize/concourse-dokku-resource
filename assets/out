@@ -31,6 +31,8 @@ repository=$(jq -r '.params.repository // ""' <<< "$payload")
 app=$(jq -r '.params.app // ""' <<< "$payload")
 override_branch=$(jq -r '.params.branch // ""' <<< "$payload")
 override_builder=$(jq -r '.params.builder // ""' <<< "$payload")
+tls_key=$(jq -r '.params.tls.key // ""' <<< "$payload")
+tls_cert=$(jq -r '.params.tls.cert // ""' <<< "$payload")
 environment=$(jq '.params.environment_variables // {}' <<< "$payload")
 
 builder=$override_builder
@@ -114,6 +116,17 @@ if [ "$deployed_commit" != "$local_head" ]; then
 else
   echo "Dokku remote is up to date.  Forcing a rebuild of app instead of pushing."
   dokku_cmd ps:rebuild "$app"
+fi
+
+if [ -n "$tls_cert" ]
+then
+  echo "Setting up TLS certificates using provided certificate and key."
+  tempdir=$(mktemp -d)
+  certfile=$tempdir/tls.crt
+  keyfile=$tempdir/tls.key
+  printf "%s\n" "$tls_cert" > "$certfile"
+  printf "%s\n" "$tls_key" > "$keyfile"
+  tar -C "$tempdir" -c "tls.crt" "tls.key" | dokku_cmd certs:add "$app"
 fi
 
 version_ref="$(git rev-parse HEAD | jq -R .)"
