@@ -134,7 +134,8 @@ and the `rebase` parameter is not provided, the push will fail.
 
 * `repository`: *Required.* The path of the repository to deploy to Dokku.
 * `app`: *Required.* The name of the app to deploy.
-* `tls`: TLS certificate info.  It's recommended to provide these using secret variables.  Both must be provided.
+* `app_json_path`: *Optional.* The app.json file path, if not in the default location.
+* `tls`: *Optional.* TLS certificate info.  It's recommended to provide these using secret variables.  Both must be provided.
   * `cert`: The TLS certificate
   * `key`: The TLS private key
 * `branch`: *Optional.* The branch to push.

@@ -182,6 +182,20 @@ put_uri() {
   }" | ${resource_dir}/out "$2" | tee /dev/stderr
 }
 
+put_uri_with_app_json() {
+  jq -n "{
+    source: {
+      server: $(echo $1 | jq -R .),
+      branch: \"master\"
+    },
+    params: {
+      app: \"fake-app\",
+      app_json_path: \"somepath/app2.json\",
+      repository: $(echo $3 | jq -R .)
+    }
+  }" | ${resource_dir}/out "$2" | tee /dev/stderr
+}
+
 put_uri_with_cert_info() {
   jq -n "{
     source: {
