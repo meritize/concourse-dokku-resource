@@ -51,6 +51,22 @@ git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
 EOF
 }
 
+it_can_put_to_url_and_set_dockerfile_path() {
+  local repo=$(init_repo)
+  local ref=$(cd $repo; git rev-parse HEAD)
+
+  put_uri_with_dockerfile_path fakeserver.dokku $TMPDIR $repo | jq -e "
+    .version == {ref: $(echo $ref | jq -R .)}
+  "
+
+  cat <<EOF | check_mocked_commands
+ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
+ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
+ssh dokku@fakeserver.dokku -p 22 builder-dockerfile:set fake-app dockerfile-path unusual.dockerfile
+git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
+EOF
+}
+
 it_can_put_to_url_with_cert_info() {
   local repo=$(init_repo)
   local ref=$(cd $repo; git rev-parse HEAD)
@@ -145,6 +161,7 @@ it_can_put_and_set_git_config() {
 
 run it_can_put_to_url
 run it_can_put_to_url_and_set_app_json_path
+run it_can_put_to_url_and_set_dockerfile_path
 run it_can_put_to_url_with_cert_info
 run it_can_put_to_url_with_branch
 run it_returns_branch_in_metadata

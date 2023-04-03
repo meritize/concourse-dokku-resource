@@ -196,6 +196,20 @@ put_uri_with_app_json() {
   }" | ${resource_dir}/out "$2" | tee /dev/stderr
 }
 
+put_uri_with_dockerfile_path() {
+  jq -n "{
+    source: {
+      server: $(echo $1 | jq -R .),
+      branch: \"master\"
+    },
+    params: {
+      app: \"fake-app\",
+      dockerfile_path: \"unusual.dockerfile\",
+      repository: $(echo $3 | jq -R .)
+    }
+  }" | ${resource_dir}/out "$2" | tee /dev/stderr
+}
+
 put_uri_with_cert_info() {
   jq -n "{
     source: {

@@ -29,6 +29,7 @@ branch=$(jq -r '.source.branch // ""' <<< "$payload")
 git_config_payload=$(jq -r '.source.git_config // []' <<< "$payload")
 repository=$(jq -r '.params.repository // ""' <<< "$payload")
 app=$(jq -r '.params.app // ""' <<< "$payload")
+dockerfile_path=$(jq -r '.params.dockerfile_path // ""' <<< "$payload")
 app_json_path=$(jq -r '.params.app_json_path // ""' <<< "$payload")
 override_branch=$(jq -r '.params.branch // ""' <<< "$payload")
 override_builder=$(jq -r '.params.builder // ""' <<< "$payload")
@@ -104,6 +105,10 @@ echo "Setting app configuration.  Hiding output to protect any secrets."
 dokku_cmd config:clear --no-restart "$app"
 dokku_cmd config:set --encoded --no-restart "$app" $(jq -r 'to_entries[] | [.key + "=" + (.value | @base64)] | @sh' <<< "$environment") > /dev/null
 
+if [ -n "$dockerfile_path" ]
+then
+  dokku_cmd builder-dockerfile:set "$app" dockerfile-path "$dockerfile_path"
+fi
 if [ -n "$app_json_path" ]
 then
   dokku_cmd app-json:set "$app" appjson-path "$app_json_path"
