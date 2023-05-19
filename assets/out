@@ -35,6 +35,7 @@ override_branch=$(jq -r '.params.branch // ""' <<< "$payload")
 override_builder=$(jq -r '.params.builder // ""' <<< "$payload")
 tls_key=$(jq -r '.params.tls.key // ""' <<< "$payload")
 tls_cert=$(jq -r '.params.tls.cert // ""' <<< "$payload")
+app_domains=$(jq -r '.params.domains // ""' <<< "$payload")
 environment=$(jq '.params.environment_variables // {}' <<< "$payload")
 
 builder=$override_builder
@@ -104,6 +105,18 @@ fi
 echo "Setting app configuration.  Hiding output to protect any secrets."
 dokku_cmd config:clear --no-restart "$app"
 dokku_cmd config:set --encoded --no-restart "$app" $(jq -r 'to_entries[] | [.key + "=" + (.value | @base64)] | @sh' <<< "$environment") > /dev/null
+
+if [ -n "$app_domains" ];
+then
+  echo "Setting up App Domains"
+  if <<< "$app_domains" jq -cr '.[]' | grep -q '[^-.a-zA-Z]'; then
+      echo "ERROR! Invalid characters in domain name"
+      exit 1
+  fi
+
+  echo $(<<< "$app_domains" jq -r '. | join(" ")')
+  dokku_cmd domains:set "$app" $(<<< "$app_domains" jq -r '. | join(" ")')
+fi
 
 if [ -n "$dockerfile_path" ]
 then

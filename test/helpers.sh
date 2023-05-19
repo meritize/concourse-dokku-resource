@@ -149,18 +149,6 @@ make_commit() {
   make_commit_to_file $1 some-file "${2:-}"
 }
 
-make_commit_to_future() {
-  make_commit_to_file $1 future-file "${2:-}"
-}
-
-make_commit_to_be_skipped() {
-  make_commit_to_file $1 some-file "[ci skip]"
-}
-
-make_commit_to_be_skipped2() {
-  make_commit_to_file $1 some-file "[skip ci]"
-}
-
 check_uri() {
   jq -n "{
     source: {
@@ -223,6 +211,20 @@ put_uri_with_cert_info() {
         cert: \"-----BEGIN CERTIFICATE-----\nMIIEsDCCApgCCQD/WGKVDrJSNjANBgkqhkiG9w0BAQsFADAaMQswCQYDVQQGEwJV\nUzELMAkGA1UECAwCVFgwHhcNMjMwMzA3MjA1MTM3WhcNMjQwMzA2MjA1MTM3WjAa\nMQswCQYDVQQGEwJVUzELMAkGA1UECAwCVFgwggIiMA0GCSqGSIb3DQEBAQUAA4IC\nDwAwggIKAoICAQCyZW2UtqV6IyRWV2PiloM0xpUXl/QgC/fF+A1si2RPSjOGOqBl\nzPF01GlwCug+AH60bKDtK2MgtRUdxoFuGP2677gdWsrJYTnB60LlZtUfE0c9XS3L\ncf/9AvoCnV/XEiRC+SnZwVIlXJ0z8wbb8bAu0tsSk9fB0Rh5KzwNSxursKDeIR20\ne96Fc73a56CaxBw30HHXN2PqOqhPvrq/6wDA8YE9KkkenhNJzi90rtTZV4DPfzWE\nWt7aDzuolMl437qH5fuT7Gr8AWu1exrV+tOsBatniXvUWmeqN7bcC5tyZvk6hCfN\nslVS5vQ38KkkoQN4UO6Bi4AQo/6lx6LIl+5F26mVuSGsM/BIoALwcyqHQEV9N1HF\n09DkM61hLvT20CVbV1jhjInkR2JkiWYT1iEe5PfDFetht1b93DA60ai0usN15Pis\n1x1VZbh+80Ie5MUeZwvVZpuqBRQmf8SqCfn9S0CRpVRNS496T4EhdbvNtQUq+pQ9\n3cb/T2lyt2ru5Lm8nLFzR+VjihbkHCJhVr8GIMiGTr/9PdG5Sgb8oBm3Z446o4FM\nFQeLgRi3vKyilacrIdMjf+X2F4IS+/S48H/vme7CQGxr0/nGpSC4CTWI6RVzJotQ\nBKnNw9WtfF0ejD2VFRGUmhk/DkbxBooRZxolowqZk0Y1VaH+mNP8qrW5JwIDAQAB\nMA0GCSqGSIb3DQEBCwUAA4ICAQAw9zJQpAEdMCCdu9EPp0AGjhvU+5cebkroEkrm\nXF/8igYSeiXMQgyLaitVkaClAkz2rzHybYmFGXar/XaFepg4JRGzjmw4rEyVjz8/\nR+YwGrhv+Sp068U9ahKzBiWqXxTegYJyygjnxHgBfFFgq1z07SRErFeJVBy9Lsnj\nv+cWzDabdl61QvHn9gO+Lcy0hx5NyytvdNyzk1wMckt0LpU22EFeDa6CEua2qRN0\neWPOcKPdbtho9U0f1ViRksZxgi93A2M+OIZepuyYKcg6u2vyi/FXVqYSJnEHZHIT\nto2UlTrs0/zL0c8rbxO4qgxHgKcIuvhvdoSGYH/XLLIRxWzA2KwqSqY8+1L56MdI\nwmeLM3TTT/fiU4t9mYlFtklkPjjO7VrelIM3e9z3Q/qoujXFp7c/7/+Lxnj3Abrs\nBd+kNUZ5g4twOeDCtx4n+1hhRYXs6hzYRNVhSUboNRh3aAERfzbw1Cu5X9Y4n23W\nyGdcw1FA/lX02rBb0FFcmk0aeCQdytFGsve/mtsBk3gwRbBLUKIaDZnRSG1UJswo\n2zq1M+a3mVd/pQ3CGOEvmh9n1FIuDQ+4RXYx3U5ETDc8GgkurMGHN5kRaUoLY0dj\nnMudZkbR+6Jo6yIg4A815blqegHy3ubmjUrniCur86lNlC4tkz0OmmtHdS0nwWy/\nn1W3NQ==\n-----END CERTIFICATE-----\"
       },
       repository: $(echo $3 | jq -R .)
+    }
+  }" | ${resource_dir}/out "$2" | tee /dev/stderr
+}
+
+put_uri_with_domains() {
+  jq -n "{
+    source: {
+      server: $(echo $1 | jq -R .),
+      branch: \"master\"
+    },
+    params: {
+      app: \"fake-app\",
+      repository: $(echo $3 | jq -R .),
+      domains: [\"test.test.com\", \"nottest.test.com\"]
     }
   }" | ${resource_dir}/out "$2" | tee /dev/stderr
 }
