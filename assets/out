@@ -37,6 +37,7 @@ tls_key=$(jq -r '.params.tls.key // ""' <<< "$payload")
 tls_cert=$(jq -r '.params.tls.cert // ""' <<< "$payload")
 app_domains=$(jq -r '.params.domains // ""' <<< "$payload")
 environment=$(jq '.params.environment_variables // {}' <<< "$payload")
+environment_from_files=$(jq '.params.environment_from_files // {}' <<< "$payload")
 
 builder=$override_builder
 
@@ -103,8 +104,15 @@ if [ -n "$builder" ]; then
 fi
 
 echo "Setting app configuration.  Hiding output to protect any secrets."
-dokku_cmd config:clear --no-restart "$app"
-dokku_cmd config:set --encoded --no-restart "$app" $(jq -r 'to_entries[] | [.key + "=" + (.value | @base64)] | @sh' <<< "$environment") > /dev/null
+
+loaded_file_environment=$(jq -r 'to_entries[] | (.key) + "=" + (.value)' <<< "$environment_from_files" | while IFS='=' read var filename; do printf "%s" "[\"$var\", $(jq -R -s < $filename)]"; done | jq -s 'reduce .[] as $item ({}; . * {($item[0]): $item[1]})')
+all_environment=$(jq -s '.[0] * .[1]' <(printf "%s" "$environment") <(printf "%s" "$loaded_file_environment"))
+
+# unset only the variables we've previously set.  We don't want to wipe out GIT_REV, for example.
+# passing _CONCOURSE_EXISTING_VARS_ as the last arg also stops this command from failing on the first time we deploy the app.
+dokku_cmd config:unset --no-restart "$app" $(dokku_cmd config:get "$app" "_CONCOURSE_EXISTING_VARS_") _CONCOURSE_EXISTING_VARS_
+dokku_cmd config:set --encoded --no-restart "$app" $(jq -r 'to_entries[] | [.key + "=" + (.value | @base64)] | @sh' <<< "$all_environment") \
+ "_CONCOURSE_EXISTING_VARS_=$(jq -r 'keys | join(" ") | @base64 | @sh' <<< "$all_environment")" > /dev/null
 
 if [ -n "$app_domains" ];
 then

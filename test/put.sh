@@ -29,10 +29,35 @@ it_can_put_to_url() {
   "
 
   cat <<EOF | check_mocked_commands
-ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
-ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
 git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
 EOF
+}
+
+it_can_put_to_url_with_environment() {
+  local repo=$(init_repo)
+  local ref=$(cd $repo; git rev-parse HEAD)
+
+  (
+    cd "$repo"
+    echo -n "111" > file_with_env_value
+    echo -n "222" > another_file_with_env_value
+  )
+
+  put_app_with_env fakeserver.dokku $TMPDIR $repo | jq -e "
+    .version == {ref: $(echo $ref | jq -R .)}
+  "
+
+  cat <<EOF | check_mocked_commands
+ssh dokku@fakeserver.dokku -p 22 config:unset --no-restart fake-app _CONCOURSE_EXISTING_VARS_
+ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app 'a=dGVzdF9h' 'b=dGVzdF9i' 'c=MTEx' 'D=MjIy' _CONCOURSE_EXISTING_VARS_='RCBhIGIgYw=='
+git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
+EOF
+
+  truncate --size 0 $TMPDIR/extcommand.log
+
+  put_app_with_env fakeserver.dokku $TMPDIR $repo | jq -e "
+    .version == {ref: $(echo $ref | jq -R .)}
+  "
 }
 
 it_can_put_to_url_and_set_app_json_path() {
@@ -44,8 +69,6 @@ it_can_put_to_url_and_set_app_json_path() {
   "
 
   cat <<EOF | check_mocked_commands
-ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
-ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
 ssh dokku@fakeserver.dokku -p 22 app-json:set fake-app appjson-path somepath/app2.json
 git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
 EOF
@@ -60,8 +83,6 @@ it_can_put_to_url_and_set_dockerfile_path() {
   "
 
   cat <<EOF | check_mocked_commands
-ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
-ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
 ssh dokku@fakeserver.dokku -p 22 builder-dockerfile:set fake-app dockerfile-path unusual.dockerfile
 git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
 EOF
@@ -76,8 +97,6 @@ it_can_put_to_url_with_cert_info() {
   "
 
   cat <<EOF | check_mocked_commands
-ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
-ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
 git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
 ssh dokku@fakeserver.dokku -p 22 certs:add fake-app
 EOF
@@ -92,8 +111,6 @@ it_can_put_to_url_with_domains() {
   "
 
   cat <<EOF | check_mocked_commands
-ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
-ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
 git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master
 ssh dokku@fakeserver.dokku -p 22 domains:set fake-app test.test.com nottest.test.com
 EOF
@@ -117,8 +134,6 @@ it_can_put_to_url_with_branch() {
   "
 
   cat <<EOF | check_mocked_commands
-ssh dokku@fakeserver.dokku -p 22 config:clear --no-restart fake-app
-ssh dokku@fakeserver.dokku -p 22 config:set --encoded --no-restart fake-app
 git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/branch-a
 EOF
 }
@@ -176,6 +191,7 @@ it_can_put_and_set_git_config() {
 }
 
 run it_can_put_to_url
+run it_can_put_to_url_with_environment
 run it_can_put_to_url_and_set_app_json_path
 run it_can_put_to_url_and_set_dockerfile_path
 run it_can_put_to_url_with_cert_info

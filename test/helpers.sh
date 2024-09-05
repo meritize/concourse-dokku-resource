@@ -157,6 +157,10 @@ check_uri() {
   }" | ${resource_dir}/check | tee /dev/stderr
 }
 
+jquote() {
+  echo $1 | jq -s -R .
+}
+
 put_uri() {
   jq -n "{
     source: {
@@ -168,6 +172,30 @@ put_uri() {
       repository: $(echo $3 | jq -R .)
     }
   }" | ${resource_dir}/out "$2" | tee /dev/stderr
+}
+
+put_app_with_env() {
+  local -r source=$1; shift;
+  local -r path=$1; shift;
+  local -r repository=$1; shift;
+  jq -n "{
+    source: {
+      server: $(jquote "$source"),
+      branch: \"master\"
+    },
+    params: {
+      app: \"fake-app\",
+      repository: $(jquote "$repository"),
+      environment_variables: {
+        \"a\": \"test_a\",
+        \"b\": \"test_b\"
+      },
+      environment_from_files: {
+        \"c\": \"file_with_env_value\",
+        \"D\": \"another_file_with_env_value\",
+      }
+    }
+  }" | ${resource_dir}/out "$path" | tee /dev/stderr
 }
 
 put_uri_with_app_json() {
