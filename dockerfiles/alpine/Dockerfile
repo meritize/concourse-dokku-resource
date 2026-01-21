@@ -2,9 +2,11 @@ ARG base_image=alpine:latest
 
 FROM ${base_image} AS resource
 
+RUN echo https://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
 RUN apk update && apk upgrade
 RUN apk --no-cache add \
-  bash \
+  oils-for-unix-bash \
+  oils-for-unix \
   curl \
   git \
   git-daemon \
@@ -46,6 +48,9 @@ RUN             rm -rf \
 
 ADD assets/ /opt/resource/
 RUN chmod +x /opt/resource/*
+
+FROM resource AS testsetup
+ADD test/ /tests
 
 FROM resource AS tests
 ADD test/ /tests

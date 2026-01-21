@@ -1,7 +1,9 @@
-#!/bin/bash
+#!/usr/bin/osh
 # vim: set ft=sh
 
 set -e
+
+shopt --set parse_at parse_brace parse_paren parse_proc
 
 exec 3>&1 # make stdout available as fd 3 for the result
 exec 1>&2 # redirect all output to stderr for logging
@@ -24,24 +26,30 @@ load_pubkey "$payload"
 configure_https_tunnel "$payload"
 configure_submodule_credentials "$payload"
 
-server=$(jq -r '.source.server // ""' <<< "$payload")
-branch=$(jq -r '.source.branch // ""' <<< "$payload")
-git_config_payload=$(jq -r '.source.git_config // []' <<< "$payload")
-repository=$(jq -r '.params.repository // ""' <<< "$payload")
-app=$(jq -r '.params.app // ""' <<< "$payload")
-dockerfile_path=$(jq -r '.params.dockerfile_path // ""' <<< "$payload")
-app_json_path=$(jq -r '.params.app_json_path // ""' <<< "$payload")
-override_branch=$(jq -r '.params.branch // ""' <<< "$payload")
-override_builder=$(jq -r '.params.builder // ""' <<< "$payload")
-tls_key=$(jq -r '.params.tls.key // ""' <<< "$payload")
-tls_cert=$(jq -r '.params.tls.cert // ""' <<< "$payload")
-app_domains=$(jq -r '.params.domains // ""' <<< "$payload")
-environment=$(jq '.params.environment_variables // {}' <<< "$payload")
-environment_from_files=$(jq '.params.environment_from_files // {}' <<< "$payload")
+json read (&config) <<< "$payload"
+
+setvar config["source"] = config["source"] or {}
+
+var server = get(config["source"], "server", "")
+var branch = get(config["source"], "branch", "")
+var git_config_payload = get(config["source"], "git_config", [])
+var repository = get(config["params"], "repository", "")
+var app = get(config["params"], "app", "")
+var dockerfile_path = get(config["params"], "dockerfile_path", "")
+var app_json_path = get(config["params"], "app_json_path", "")
+var override_branch = get(config["params"], "branch", "")
+var override_builder = get(config["params"], "builder", "")
+var tls_key = get(get(config["params"], "tls", {}), "key", "")
+var tls_cert = get(get(config["params"], "tls", {}), "cert", "")
+var app_domains = get(config["params"], "domains", [])
+var environment = get(config["params"], "environment_variables", {})
+var environment_from_files = get(config["params"], "environment_from_files", {})
 
 builder=$override_builder
 
-configure_git_global "${git_config_payload}"
+for element in (git_config_payload) {
+  git config --global $[element['name']] $[element['value']]
+}
 
 if [ -z "$server" ]; then
   echo "invalid payload (missing server)"
@@ -53,18 +61,27 @@ if [ -z "$app" ]; then
   exit 1
 fi
 
+for domain in (app_domains) {
+  if (domain.search(/![ a-z A-Z '-' '.' ]/)) {
+    echo "ERROR! Invalid characters in domain name - $domain"
+    exit 1
+  }
+}
+
 uri="ssh://dokku@$server/$app"
 server_host=$(echo "$server:" | cut -d ':' -f1)
 server_port=$(echo "$server:" | cut -d ':' -f2)
 server_port=${server_port:-22}
 
-mockcommand() {
-  echo "$@" >> $TMPDIR/extcommand.log
+var ext_commands = []
+proc mockcommand(...args) {
+  call ext_commands->append(args)
 }
 
 if [ "$TEST_MOCK_EXT" = "1" ]
 then
   EXTCMD="mockcommand"
+  touch $TMPDIR/extcommand2.log
 else
   EXTCMD=""
 fi
@@ -105,26 +122,29 @@ fi
 
 echo "Setting app configuration.  Hiding output to protect any secrets."
 
-loaded_file_environment=$(jq -r 'to_entries[] | (.key) + "=" + (.value)' <<< "$environment_from_files" | while IFS='=' read var filename; do printf "%s" "[\"$var\", $(jq -R -s < $filename)]"; done | jq -s 'reduce .[] as $item ({}; . * {($item[0]): $item[1]})')
-all_environment=$(jq -s '.[0] * .[1]' <(printf "%s" "$environment") <(printf "%s" "$loaded_file_environment"))
+var all_environment = dict(environment)
+for key, filename in (environment_from_files) {
+  setvar all_environment[key] = $(< $filename).trim()
+}
 
 # unset only the variables we've previously set.  We don't want to wipe out GIT_REV, for example.
 # passing _CONCOURSE_EXISTING_VARS_ as the last arg also stops this command from failing on the first time we deploy the app.
 dokku_cmd config:unset --no-restart "$app" $(dokku_cmd config:get "$app" "_CONCOURSE_EXISTING_VARS_") _CONCOURSE_EXISTING_VARS_
-dokku_cmd config:set --encoded --no-restart "$app" $(jq -r 'to_entries[] | [.key + "=" + (.value | @base64)] | @sh' <<< "$all_environment") \
- "_CONCOURSE_EXISTING_VARS_=$(jq -r 'keys | join(" ") | @base64 | @sh' <<< "$all_environment")" > /dev/null
 
-if [ -n "$app_domains" ];
-then
+setvar all_environment["_CONCOURSE_EXISTING_VARS_"] = join(keys(all_environment), " ")
+var encoded_env = []
+for key, value in (all_environment) {
+  call encoded_env->append(key ++ '=' ++ $(printf %s "$value" | base64))
+  = encoded_env
+}
+dokku_cmd config:set --encoded --no-restart "$app" @encoded_env > /dev/null
+
+if (len(app_domains) > 0) {
   echo "Setting up App Domains"
-  if <<< "$app_domains" jq -cr '.[]' | grep -q '[^-.a-zA-Z]'; then
-      echo "ERROR! Invalid characters in domain name"
-      exit 1
-  fi
 
-  echo $(<<< "$app_domains" jq -r '. | join(" ")')
-  dokku_cmd domains:set "$app" $(<<< "$app_domains" jq -r '. | join(" ")')
-fi
+  echo @app_domains
+  dokku_cmd domains:set "$app" @app_domains
+}
 
 if [ -n "$dockerfile_path" ]
 then
@@ -161,16 +181,23 @@ then
   tar -C "$tempdir" -c "tls.crt" "tls.key" | dokku_cmd certs:add "$app"
 fi
 
-version_ref="$(git rev-parse HEAD | jq -R .)"
 
-if [ -n "$override_branch" ]; then
-  jq -n "{
-    version: {branch: $(echo $override_branch | jq -R .), ref: $version_ref},
-    metadata: $(git_metadata)
-  }" >&3
-else
-  jq -n "{
-    version: {ref: $version_ref},
-    metadata: $(git_metadata)
-  }" >&3
+var version_info = {
+  "ref": $(git rev-parse HEAD)
+}
+
+if [ -n "$override_branch" ] {
+  setvar version_info['branch'] = override_branch
+}
+
+var output = {
+  'version': version_info,
+  'metadata': git_metadata(),
+}
+
+json write (output) >&3
+
+if [ "$TEST_MOCK_EXT" = "1" ]
+then
+  json write (ext_commands) > $TMPDIR/extcommand.json
 fi

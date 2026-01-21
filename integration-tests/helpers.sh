@@ -96,25 +96,6 @@ put_app_with_private_key_and_tunnel_info() {
   }" | ${resource_dir}/out "$2" | tee /dev/stderr
 }
 
-put_uri_with_private_key_and_tunnel_info() {
-  auth=${4:-""}
-  jq -n "{
-    source: {
-      uri: $(echo $INTG_REPO | jq -R .),
-      private_key: $(cat $1| jq -s -R .),
-      branch: $(echo $INTG_BRANCH | jq -R .),
-      https_tunnel: {
-        proxy_host: \"localhost\",
-        proxy_port: 3128
-        $(add_proxy_auth "$auth")
-      }
-    },
-    params: {
-      repository: $(echo $3 | jq -R .)
-    }
-  }" | ${resource_dir}/out "$2" | tee /dev/stderr
-}
-
 add_proxy_auth() {
   local file=$1
 

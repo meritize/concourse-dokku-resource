@@ -1,3 +1,7 @@
+
+shopt --set parse_at parse_brace parse_paren parse_proc parse_func
+
+
 export TMPDIR=${TMPDIR:-/tmp}
 
 load_pubkey() {
@@ -59,121 +63,109 @@ EOF
   fi
 }
 
-configure_git_global() {
-  local git_config_payload="$1"
-  eval $(echo "$git_config_payload" | \
-    jq -r ".[] | \"git config --global '\\(.name)' '\\(.value)'; \"")
+func add_git_metadata_basic(m) {
+  call m->extend([
+    {'name': 'commit', 'value': $(git rev-parse HEAD)},
+    {'name': 'author', 'value': $(git log -1 --format=format:%an | sort)},
+    {'name': 'author_date', 'value': $(git log -1 --format=format:%ai)},
+  ])
 }
 
-add_git_metadata_basic() {
-  local commit=$(git rev-parse HEAD | jq -R .)
-  local author=$(git log -1 --format=format:%an | jq -s -R .)
-  local author_date=$(git log -1 --format=format:%ai | jq -R .)
+func add_git_metadata_committer(m) {
+  var author = $(git log -1 --format=format:%an)
+  var author_date = $(git log -1 --format=format:%ai)
+  var committer = $(git log -1 --format=format:%cn)
+  var committer_date = $(git log -1 --format=format:%ci)
 
-  jq ". + [
-    {name: \"commit\", value: ${commit}},
-    {name: \"author\", value: ${author}},
-    {name: \"author_date\", value: ${author_date}, type: \"time\"}
-  ]"
+  if (not (author === committer and author_date === committer_date)) {
+    call m->extend([
+      {'name': 'committer', 'value': committer},
+      {'name': 'committer_date', 'value': committer_date},
+    ])
+  }
 }
 
-add_git_metadata_committer() {
-  local author=$(git log -1 --format=format:%an | jq -s -R .)
-  local author_date=$(git log -1 --format=format:%ai | jq -R .)
-  local committer=$(git log -1 --format=format:%cn | jq -s -R .)
-  local committer_date=$(git log -1 --format=format:%ci | jq -R .)
-
-  if [ "$author" = "$committer" ] && [ "$author_date" = "$committer_date" ]; then
-    jq ". + [
-      {name: \"committer\", value: ${committer}},
-      {name: \"committer_date\", value: ${committer_date}, type: \"time\"}
-    ]"
-  else
-    cat
-  fi
-}
-
-add_git_metadata_branch() {
-  local branch=$(git show-ref --heads | \
+func add_git_metadata_branch(m) {
+  var branch = $(git show-ref --heads | \
     sed -n "s/^$(git rev-parse HEAD) refs\/heads\/\(.*\)/\1/p" |  \
     jq -R  ". | select(. != \"\")" | jq -r -s "map(.) | join (\",\")")
 
-  if [ -n "${branch}" ]; then
-    jq ". + [
-      {name: \"branch\", value: \"${branch}\"}
-    ]"
-  else
-    cat
-  fi
+  if (len(branch) > 0) {
+    call m->extend([
+      {"name": "branch", "value": branch}
+    ])
+  }
 }
 
-add_git_metadata_tags() {
-  local tags=$(git tag --points-at HEAD | \
+func add_git_metadata_tags(m) {
+  var tags = $(git tag --points-at HEAD | \
     jq -R  ". | select(. != \"\")" | \
     jq -r -s "map(.) | join(\",\")")
 
-  if [ -n "${tags}" ]; then
-    jq ". + [
-      {name: \"tags\", value: \"${tags}\"}
-    ]"
-  else
-    cat
-  fi
+  if (len(tags) > 0) {
+    call m->extend([
+      {"name": "tags", "value": tags}
+    ])
+  }
 }
 
-add_git_metadata_message() {
-  local message=$(git log -1 --format=format:%B | head -c 10240 | jq -s -R .)
+func add_git_metadata_message(m) {
+  var message=$(git log -1 --format=format:%B | head -c 10240)
 
-  jq ". + [
-    {name: \"message\", value: ${message}, type: \"message\"}
-  ]"
+  call m->extend([
+    {"name": "message", "value": message, "type": "message"}
+  ])
 }
 
-add_git_metadata_url() {
-  local commit=$(git rev-parse HEAD)
-  local origin=$(git remote get-url --all origin) 2> /dev/null
+func add_git_metadata_url(m) {
+  var commit = $(git rev-parse HEAD)
+  var origin = ""
+  try {
+    setvar origin = $(git remote get-url --all origin 2> /dev/null)
+  }
 
   # This is not exhaustive for remote URL formats, but does cover the
   # most common hosting scenarios for where a commit URL exists
   if [[ ! $origin =~ ^(https?://|ssh://git@|git@)([^/]+)/(.*)$ ]]; then
-    jq ". + []"
+    return (null)
   else  
-    local host=${BASH_REMATCH[2]}
-    local repo_path=${BASH_REMATCH[3]%.git}
+    var host = ${BASH_REMATCH[2]}
+    var repo_path = ${BASH_REMATCH[3]%.git}
 
     # Remap scp-style names so that "github.com:concourse" + "git-resource"
     # becomes "github.com" + "concourse/git-resource"
     if [[ ${BASH_REMATCH[1]} == "git@" && $host == *:* ]]; then
-      repo_path="${host#*:}/${repo_path}"
-      host=${host%%:*}
+      setvar repo_path="${host#*:}/${repo_path}"
+      setvar host = ${host%%:*}
     fi
 
-    local url=""
-    case $host in
-      *github* | *gitlab* | *gogs* )
-        url="https://${host}/${repo_path}/commit/${commit}" ;;
-      *bitbucket* )
-        url="https://${host}/${repo_path}/commits/${commit}";;
-    esac
+    var url=""
+    case (host) {
+      *github* | *gitlab* | *gogs* {
+        setvar url="https://${host}/${repo_path}/commit/${commit}"
+      }
+      *bitbucket* {
+        setvar url="https://${host}/${repo_path}/commits/${commit}"
+      }
+    }
 
-    if [ -n "$url" ]; then
-      jq ". + [
-        {name: \"url\", value: \"${url}\"}
-      ]"
-    else
-      jq ". + []"
-    fi
+    if (len(url) > 0) {
+      call m->extend([
+        {"name": "url", "value": url}
+      ])
+    }
   fi
 }
 
-git_metadata() {
-  jq -n "[]" | \
-    add_git_metadata_basic | \
-    add_git_metadata_committer | \
-    add_git_metadata_branch | \
-    add_git_metadata_tags | \
-    add_git_metadata_message | \
-    add_git_metadata_url
+func git_metadata() {
+  var m = []
+  call add_git_metadata_basic(m)
+  call add_git_metadata_committer(m)
+  call add_git_metadata_branch(m)
+  call add_git_metadata_url(m)
+  call add_git_metadata_tags(m)
+  call add_git_metadata_message(m)
+  return (m)
 }
 
 configure_submodule_credentials() {
