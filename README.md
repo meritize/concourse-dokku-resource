@@ -144,6 +144,8 @@ and the `rebase` parameter is not provided, the push will fail.
 * `environment_variables`: *Optional.* An object whose key-value pairs will be set as environment variables for the app.
 * `environment_from_files`: *Optional.* An object with keys representing environment variable names, and values as filenames 
   whose contents will be read and set as the values of those environment variables.
+* `nginx`: *Optional.* An object whose key-value pairs will be set as nginx configuration
+   (https://dokku.com/docs/networking/proxies/nginx/#setting-properties-for-the-nginx-config) for the app.
 
 ## Development
 

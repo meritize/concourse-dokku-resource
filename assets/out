@@ -44,6 +44,7 @@ var tls_cert = get(get(config["params"], "tls", {}), "cert", "")
 var app_domains = get(config["params"], "domains", [])
 var environment = get(config["params"], "environment_variables", {})
 var environment_from_files = get(config["params"], "environment_from_files", {})
+var nginx_config = get(config["params"], "nginx", {})
 
 builder=$override_builder
 
@@ -134,10 +135,17 @@ dokku_cmd config:unset --no-restart "$app" $(dokku_cmd config:get "$app" "_CONCO
 setvar all_environment["_CONCOURSE_EXISTING_VARS_"] = join(keys(all_environment), " ")
 var encoded_env = []
 for key, value in (all_environment) {
-  call encoded_env->append(key ++ '=' ++ $(printf %s "$value" | base64))
-  = encoded_env
+  call encoded_env->append(key ++ '=' ++ $(printf %s "$value" | base64 -w 0))
 }
 dokku_cmd config:set --encoded --no-restart "$app" @encoded_env > /dev/null
+
+for key, value in (nginx_config) {
+  dokku_cmd nginx:set $app "$key" @[[value] if value !== null else []]
+}
+if (len(nginx_config) > 0) {
+  echo "Calling proxy:build-config to make nginx options take effect"
+  dokku_cmd proxy:build-config $app
+}
 
 if (len(app_domains) > 0) {
   echo "Setting up App Domains"

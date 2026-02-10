@@ -264,6 +264,25 @@ it_can_put_and_set_git_config() {
   mv ~/.gitconfig.orig ~/.gitconfig
 }
 
+it_can_put_to_url_and_set_nginx_config() {
+  local repo=$(init_repo)
+  local ref=$(cd $repo; git rev-parse HEAD)
+
+  var cfg = newPutConfig(server='fakeserver.dokku', repository=repo)
+  call cfg->setParam('nginx', {"a": true, "b": "hello", "c": null})
+
+  run-out (cfg, TMPDIR) | json read
+  assert [{"ref": ref} === _reply.version]
+
+  check_mocked_commands ([
+    :|ssh dokku@fakeserver.dokku -p 22 nginx:set fake-app a true|,
+    :|ssh dokku@fakeserver.dokku -p 22 nginx:set fake-app b hello|,
+    :|ssh dokku@fakeserver.dokku -p 22 nginx:set fake-app c|,
+    :|ssh dokku@fakeserver.dokku -p 22 proxy:build-config fake-app|,
+    :|git push --force ssh://dokku@fakeserver.dokku/fake-app HEAD:refs/heads/master|,
+  ])
+}
+
 run it_can_put_to_url
 run it_can_put_to_url_with_environment
 run it_can_put_to_url_and_set_app_json_path
@@ -273,3 +292,4 @@ run it_can_put_to_url_with_domains
 run it_can_put_to_url_with_branch
 run it_returns_branch_in_metadata
 run it_can_put_and_set_git_config
+run it_can_put_to_url_and_set_nginx_config
